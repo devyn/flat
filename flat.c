@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 
 typedef struct flat_value_t {
@@ -18,6 +19,13 @@ typedef struct flat_stack_t {
 	flat_value_t         contents[32];
 	struct flat_stack_t *next;
 } flat_stack_t;
+
+typedef enum {
+	FLAT_OK,
+	FLAT_ERROR_NOT_ENOUGH_ARGUMENTS,
+	FLAT_ERROR_TYPE_MISMATCH,
+	FLAT_ERROR_UNKNOWN_WORD
+} flat_error_t;
 
 typedef struct flat_interpreter_t {
 	flat_stack_t *stack;
@@ -121,12 +129,56 @@ char *flat_value_type_name (flat_value_t *value) {
 	}
 }
 
+void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno, ...) {
+	va_list vl;
+
+	switch (errno) {
+		case FLAT_OK:
+			break;
+		case FLAT_ERROR_NOT_ENOUGH_ARGUMENTS:
+			va_start (vl, errno);
+
+			fprintf (stderr, "Error: Not enough arguments to `%s'. Minimum stack size: %i; actual stack size: %i.\n",
+					va_arg (vl, char *), va_arg (vl, int), flat_stack_size (interpreter->stack));
+
+			va_end (vl);
+			break;
+		case FLAT_ERROR_TYPE_MISMATCH:
+			va_start (vl, errno);
+
+			int   amount   = va_arg (vl, int);
+			char *expected = va_arg (vl, char *);
+
+			fprintf (stderr, "Error: Type mismatch. In stack order, expected argument types were: %s, but got: ", expected);
+
+			int i;
+
+			for (i = 0; i < amount; i++) {
+				if (i == amount - 1) {
+					fprintf (stderr, "%s.\n", flat_value_type_name (va_arg (vl, flat_value_t *)));
+				} else {
+					fprintf (stderr, "%s, ", flat_value_type_name (va_arg (vl, flat_value_t *)));
+				}
+			}
+
+			va_end (vl);
+			break;
+		case FLAT_ERROR_UNKNOWN_WORD:
+			va_start (vl, errno);
+
+			vfprintf (stderr, "Error: Unknown word: `%s'.", vl);
+
+			va_end (vl);
+			break;
+	}
+}
+
 int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) {
 	switch (instruction->kind) {
 		case FLAT_WORD:
 			if (strcmp ("+", instruction->value.as_word) == 0) {
 				if (flat_stack_size (interpreter->stack) < 2) {
-					fprintf (stderr, "Error: Not enough arguments to `+'. Minimum stack size: 2; actual stack size: %i.\n", flat_stack_size (interpreter->stack));
+					flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "+", 2);
 					return 1;
 				}
 
@@ -137,8 +189,7 @@ int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) 
 				flat_stack_pop (&interpreter->stack, &value2);
 
 				if (value1.kind != FLAT_INT || value2.kind != FLAT_INT) {
-					fprintf (stderr, "Error: Both arguments to `+' must be integers. Types (in stack order): %s, %s.\n",
-							flat_value_type_name (&value1), flat_value_type_name (&value2));
+					flat_interpreter_error (interpreter, FLAT_ERROR_TYPE_MISMATCH, 2, "int, int", &value2, &value1);
 					flat_stack_push (&interpreter->stack, &value2);
 					flat_stack_push (&interpreter->stack, &value1);
 					return 1;
