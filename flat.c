@@ -27,6 +27,12 @@ typedef enum {
 	FLAT_ERROR_UNKNOWN_WORD
 } flat_error_t;
 
+typedef enum {
+	FLAT_PARSER_STATE_ZERO,
+	FLAT_PARSER_STATE_READ_WORD,
+	FLAT_PARSER_STATE_READ_INT
+} flat_parser_state_t;
+
 typedef struct flat_interpreter_t {
 	flat_stack_t *stack;
 } flat_interpreter_t;
@@ -77,6 +83,20 @@ int flat_stack_pop (flat_stack_t **stack, flat_value_t *target) {
 	return 0;
 }
 
+int flat_stack_peek (flat_stack_t *stack, unsigned int index, flat_value_t *target) {
+	while (stack != NULL) {
+		if (index >= stack->size) {
+			index -= stack->size;
+			stack = stack->next;
+		} else {
+			memcpy (target, stack->contents + stack->size - index - 1, sizeof (flat_value_t));
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 int flat_stack_size (flat_stack_t *stack) {
 	int size = 0;
 
@@ -86,6 +106,24 @@ int flat_stack_size (flat_stack_t *stack) {
 	}
 
 	return size;
+}
+
+void flat_value_print (flat_value_t *value);
+
+void flat_stack_print (flat_stack_t *stack) {
+	int first;
+
+	while (stack != NULL) {
+		int n;
+
+		for (n = stack->size - 1; n >= 0; n--) {
+			if (first) first = !first; else printf (" ");
+			flat_value_print (&stack->contents[n]);
+		}
+
+		stack = stack->next;
+	}
+	printf ("\n");
 }
 
 void flat_value_word (flat_value_t *target, char *val) {
@@ -166,7 +204,7 @@ void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno
 		case FLAT_ERROR_UNKNOWN_WORD:
 			va_start (vl, errno);
 
-			vfprintf (stderr, "Error: Unknown word: `%s'.", vl);
+			vfprintf (stderr, "Error: Unknown word: `%s'.\n", vl);
 
 			va_end (vl);
 			break;
@@ -176,7 +214,17 @@ void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno
 int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) {
 	switch (instruction->kind) {
 		case FLAT_WORD:
-			if (strcmp ("+", instruction->value.as_word) == 0) {
+			if (strcmp ("drop", instruction->value.as_word) == 0) {
+				if (flat_stack_size (interpreter->stack) < 1) {
+					flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "drop", 1);
+					return 1;
+				}
+
+				flat_value_t discard;
+				flat_stack_pop (&interpreter->stack, &discard);
+
+				// if discard is a word, there might be a leak
+			} else if (strcmp ("+", instruction->value.as_word) == 0) {
 				if (flat_stack_size (interpreter->stack) < 2) {
 					flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "+", 2);
 					return 1;
@@ -201,8 +249,9 @@ int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) 
 
 				flat_stack_push (&interpreter->stack, &value3);
 			} else {
-				fprintf (stderr, "Error: Unknown word: `%s'.", instruction->value.as_word);
+				flat_interpreter_error (interpreter, FLAT_ERROR_UNKNOWN_WORD, instruction->value.as_word);
 			}
+			// it might be desirable to free the value.as_word of the instruction.
 			break;
 		default:
 			flat_stack_push (&interpreter->stack, instruction);
@@ -210,25 +259,117 @@ int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) 
 	return 0;
 }
 
-int main (int argc, char **argv) {
-	flat_interpreter_t interpreter;
-	flat_value_t       value;
+void flat_read_eval_print (flat_interpreter_t *interpreter) {
+	char                 buffer[4096];
+	flat_parser_state_t  state = FLAT_PARSER_STATE_ZERO;
+	unsigned int         item_start;
+	char                *item_partial = NULL;
 
-	flat_value_int (&value, 64);
+	printf (">> ");
 
-	flat_interpret (&interpreter, &value);
-	flat_interpret (&interpreter, &value);
+	while (!feof (stdin)) {
+		if (fgets (buffer, 4096, stdin) == NULL) break;
 
-	flat_value_word (&value, "+");
+		int  c;
+		char ch;
 
-	flat_interpret (&interpreter, &value);
+		for (c = 0, ch = buffer[c]; c < 4096 && ch != '\0'; c++, ch = buffer[c]) {
+			switch (state) {
+				case FLAT_PARSER_STATE_ZERO:
+					if (ch == ' ' || ch == '\t' || ch == '\n') {
+					} else if (ch >= '0' && ch <= '9') {
+						item_start = c;
+						state = FLAT_PARSER_STATE_READ_INT;
+					} else {
+						item_start = c;
+						state = FLAT_PARSER_STATE_READ_WORD;
+					}
+					break;
+				case FLAT_PARSER_STATE_READ_WORD:
+					if (ch == ' ' || ch == '\t' || ch == '\n') {
+						flat_value_t word;
+						char *str;
+						
+						if (item_partial == NULL) {
+							str = malloc (c - item_start + 1);
+							memcpy (str, buffer + item_start, c - item_start);
+							str[c - item_start] = '\0';
+						} else {
+							unsigned int len = strlen (item_partial);
 
-	while (flat_stack_pop (&interpreter.stack, &value) == 0) {
-		flat_value_print (&value);
-		printf (" ");
+							str = malloc (c - item_start + len + 1);
+							memcpy (str, item_partial, len);
+							memcpy (str + len, buffer + item_start, c - item_start);
+							str[c - item_start + len] = '\0';
+
+							free (item_partial);
+							item_partial = NULL;
+						}
+
+						flat_value_word (&word, str);
+
+						item_start = 0;
+						state = FLAT_PARSER_STATE_ZERO;
+
+						flat_interpret (interpreter, &word);
+					}
+					break;
+				case FLAT_PARSER_STATE_READ_INT:
+					if (ch == ' ' || ch == '\t' || ch == '\n') {
+						flat_value_t intv;
+						char *str;
+						
+						if (item_partial == NULL) {
+							str = malloc (c - item_start + 1);
+							memcpy (str, buffer + item_start, c - item_start);
+							str[c - item_start] = '\0';
+						} else {
+							unsigned int len = strlen (item_partial);
+
+							str = malloc (c - item_start + len + 1);
+							memcpy (str, item_partial, len);
+							memcpy (str + len, buffer + item_start, c - item_start);
+							str[c - item_start + len] = '\0';
+
+							free (item_partial);
+							item_partial = NULL;
+						}
+
+						flat_value_int (&intv, atoi (str));
+						free (str);
+
+						item_start = 0;
+						state = FLAT_PARSER_STATE_ZERO;
+
+						flat_interpret (interpreter, &intv);
+					}
+					break;
+			}
+
+			if (ch == '\n') goto got_newline;
+		}
+
+		if (state != FLAT_PARSER_STATE_ZERO) {
+			item_partial = malloc (c - item_start);
+			memcpy (item_partial, buffer + item_start, c - item_start - 1);
+			item_partial[c - item_start - 1] = '\0';
+		}
 	}
 
-	printf ("\n");
+got_newline:
+
+	if (flat_stack_size (interpreter->stack) > 0) {
+		printf ("=> ");
+		flat_stack_print (interpreter->stack);
+	}
+}
+
+int main (int argc, char **argv) {
+	flat_interpreter_t interpreter;
+
+	while (!feof (stdin)) {
+		flat_read_eval_print (&interpreter);
+	}
 
 	return 0;
 }
