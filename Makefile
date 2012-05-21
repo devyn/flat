@@ -1,4 +1,5 @@
 CC = clang
+CFLAGS = -g -O2
 OBJECTS = obj/flat.o obj/flat/dictionary.o
 
 all: bin/flat
