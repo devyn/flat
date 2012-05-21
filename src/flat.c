@@ -124,8 +124,7 @@ int flat_value_serialize (char **ret, flat_value_t *value) {
 		case FLAT_INT:
 			return asprintf (ret, "%i", value->value.as_int);
 		default:
-			*ret = "<unknown>";
-			return 0;
+			return asprintf (ret, "<unknown>");
 	}
 }
 
