@@ -358,11 +358,27 @@ got_newline:
 }
 
 int main (int argc, char **argv) {
+	/*
 	flat_interpreter_t interpreter;
 
 	while (!feof (stdin)) {
 		flat_read_eval_print (&interpreter);
 	}
+	*/
+
+	flat_dictionary_t dictionary;
+
+	flat_dictionary_insert (&dictionary, "+", (flat_program_t *) 2);
+	flat_dictionary_insert (&dictionary, "drop", (flat_program_t *) 4);
+	flat_dictionary_insert (&dictionary, "clear", (flat_program_t *) 8);
+	flat_dictionary_insert (&dictionary, "blah", (flat_program_t *) 16);
+	flat_dictionary_insert (&dictionary, "blaha", (flat_program_t *) 32);
+
+	flat_program_t *target;
+
+	flat_dictionary_lookup (&dictionary, "blaha", &target);
+
+	printf ("%x\n", (int) target);
 
 	return 0;
 }
