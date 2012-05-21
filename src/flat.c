@@ -91,7 +91,7 @@ int flat_stack_size (flat_stack_t *stack) {
 }
 
 void flat_stack_print (flat_stack_t *stack) {
-	int first;
+	int first = 1;
 
 	while (stack != NULL) {
 		int n;
