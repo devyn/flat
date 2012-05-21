@@ -1,7 +1,11 @@
 #ifndef FLAT_H
 #define FLAT_H
 
-typedef struct flat_value_t {
+typedef struct flat_program flat_program_t;
+
+#include "flat/dictionary.h"
+
+typedef struct flat_value {
 	enum {
 		FLAT_WORD,
 		FLAT_INT
@@ -12,10 +16,15 @@ typedef struct flat_value_t {
 	} value;
 } flat_value_t;
 
-typedef struct flat_stack_t {
+typedef struct flat_value_list {
+	flat_value_t *item;
+	struct flat_value_list *next;
+} flat_value_list_t;
+
+typedef struct flat_stack {
 	unsigned short       size;
 	flat_value_t         contents[32];
-	struct flat_stack_t *next;
+	struct flat_stack *next;
 } flat_stack_t;
 
 typedef enum {
@@ -31,9 +40,21 @@ typedef enum {
 	FLAT_PARSER_STATE_READ_INT
 } flat_parser_state_t;
 
-typedef struct flat_interpreter_t {
+typedef struct flat_interpreter {
 	flat_stack_t *stack;
+	flat_dictionary_t *dictionary;
 } flat_interpreter_t;
+
+struct flat_program {
+	enum {
+		FLAT_PROGRAM_NATIVE,
+		FLAT_PROGRAM_INTERPRETED
+	} kind;
+	union {
+		int (*as_native) (flat_interpreter_t *);
+		flat_value_list_t *as_interpreted;
+	} value;
+};
 
 void flat_stack_init (flat_stack_t *stack);
 
