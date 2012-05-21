@@ -3,46 +3,12 @@
 #include <stdarg.h>
 #include <string.h>
 
-typedef struct flat_value_t {
-	enum {
-		FLAT_WORD,
-		FLAT_INT
-	} kind;
-	union {
-		char *as_word;
-		int   as_int;
-	} value;
-} flat_value_t;
-
-typedef struct flat_stack_t {
-	unsigned short       size;
-	flat_value_t         contents[32];
-	struct flat_stack_t *next;
-} flat_stack_t;
-
-typedef enum {
-	FLAT_OK,
-	FLAT_ERROR_NOT_ENOUGH_ARGUMENTS,
-	FLAT_ERROR_TYPE_MISMATCH,
-	FLAT_ERROR_UNKNOWN_WORD
-} flat_error_t;
-
-typedef enum {
-	FLAT_PARSER_STATE_ZERO,
-	FLAT_PARSER_STATE_READ_WORD,
-	FLAT_PARSER_STATE_READ_INT
-} flat_parser_state_t;
-
-typedef struct flat_interpreter_t {
-	flat_stack_t *stack;
-} flat_interpreter_t;
+#include "flat.h"
 
 void flat_stack_init (flat_stack_t *stack) {
 	stack->size = 0;
 	stack->next = NULL;
 }
-
-void flat_value_free_refs (flat_value_t *value);
 
 void flat_stack_destroy (flat_stack_t *stack) {
 	flat_stack_t *stack_p;
@@ -123,8 +89,6 @@ int flat_stack_size (flat_stack_t *stack) {
 
 	return size;
 }
-
-void flat_value_print (flat_value_t *value);
 
 void flat_stack_print (flat_stack_t *stack) {
 	int first;
