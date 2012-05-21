@@ -252,7 +252,6 @@ int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) 
 			} else {
 				flat_interpreter_error (interpreter, FLAT_ERROR_UNKNOWN_WORD, instruction->value.as_word);
 			}
-			flat_value_free_refs (instruction);
 			break;
 		}
 		default:
@@ -376,6 +375,8 @@ void flat_read_eval_print (flat_interpreter_t *interpreter) {
 						state = FLAT_PARSER_STATE_ZERO;
 
 						flat_interpret (interpreter, &word);
+
+						free (str);
 					}
 					break;
 				case FLAT_PARSER_STATE_READ_INT:
