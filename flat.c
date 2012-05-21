@@ -42,6 +42,22 @@ void flat_stack_init (flat_stack_t *stack) {
 	stack->next = NULL;
 }
 
+void flat_value_free_refs (flat_value_t *value);
+
+void flat_stack_destroy (flat_stack_t *stack) {
+	flat_stack_t *stack_p;
+
+	while (stack != NULL) {
+		int i;
+		for (i = 0; i < stack->size; i++) {
+			flat_value_free_refs (&stack->contents[i]);
+		}
+		stack_p = stack->next;
+		free (stack);
+		stack = stack_p;
+	}
+}
+
 int flat_stack_push (flat_stack_t **stack, flat_value_t *value) {
 	if (*stack == NULL) {
 		flat_stack_t *stack_new = malloc (sizeof (flat_stack_t));
@@ -167,6 +183,16 @@ char *flat_value_type_name (flat_value_t *value) {
 	}
 }
 
+void flat_value_free_refs (flat_value_t *value) {
+	switch (value->kind) {
+		case FLAT_WORD:
+			free (value->value.as_word);
+			break;
+		case FLAT_INT:
+			break;
+	}
+}
+
 void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno, ...) {
 	va_list vl;
 
@@ -223,7 +249,10 @@ int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) 
 				flat_value_t discard;
 				flat_stack_pop (&interpreter->stack, &discard);
 
-				// if discard is a word, there might be a leak
+				flat_value_free_refs (&discard);
+			} else if (strcmp ("clear", instruction->value.as_word) == 0) {
+				flat_stack_destroy (interpreter->stack);
+				interpreter->stack = NULL;
 			} else if (strcmp ("+", instruction->value.as_word) == 0) {
 				if (flat_stack_size (interpreter->stack) < 2) {
 					flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "+", 2);
@@ -251,7 +280,7 @@ int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) 
 			} else {
 				flat_interpreter_error (interpreter, FLAT_ERROR_UNKNOWN_WORD, instruction->value.as_word);
 			}
-			// it might be desirable to free the value.as_word of the instruction.
+			flat_value_free_refs (instruction);
 			break;
 		default:
 			flat_stack_push (&interpreter->stack, instruction);
