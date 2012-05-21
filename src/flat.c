@@ -157,6 +157,30 @@ void flat_value_free_refs (flat_value_t *value) {
 	}
 }
 
+int flat_program_native (flat_program_t **program_ptr, int (*native) (flat_interpreter_t *)) {
+	*program_ptr = malloc (sizeof (flat_program_t));
+
+	if (*program_ptr == NULL) return 8;
+
+	(*program_ptr)->kind = FLAT_PROGRAM_NATIVE;
+
+	(*program_ptr)->value.as_native = native;
+
+	return 0;
+}
+
+int flat_program_interpreted (flat_program_t **program_ptr, flat_value_list_t *interpreted) {
+	*program_ptr = malloc (sizeof (flat_program_t));
+
+	if (*program_ptr == NULL) return 8;
+
+	(*program_ptr)->kind = FLAT_PROGRAM_INTERPRETED;
+
+	(*program_ptr)->value.as_interpreted = interpreted;
+
+	return 0;
+}
+
 void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno, ...) {
 	va_list vl;
 
@@ -201,54 +225,101 @@ void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno
 	}
 }
 
+int flat_interpreter_register_native (flat_interpreter_t *interpreter, char *word, int (*native) (flat_interpreter_t *)) {
+	flat_program_t *program;
+	int             rv;
+
+	rv = flat_program_native (&program, native);
+	if (rv != 0) return rv;
+
+	rv = flat_dictionary_insert (&interpreter->dictionary, word, program);
+	if (rv != 0) {
+		free (program);
+		return rv;
+	}
+
+	return 0;
+}
+
 int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction) {
 	switch (instruction->kind) {
 		case FLAT_WORD:
-			if (strcmp ("drop", instruction->value.as_word) == 0) {
-				if (flat_stack_size (interpreter->stack) < 1) {
-					flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "drop", 1);
-					return 1;
-				}
+		{
+			flat_program_t *program;
 
-				flat_value_t discard;
-				flat_stack_pop (&interpreter->stack, &discard);
-
-				flat_value_free_refs (&discard);
-			} else if (strcmp ("clear", instruction->value.as_word) == 0) {
-				flat_stack_destroy (interpreter->stack);
-				interpreter->stack = NULL;
-			} else if (strcmp ("+", instruction->value.as_word) == 0) {
-				if (flat_stack_size (interpreter->stack) < 2) {
-					flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "+", 2);
-					return 1;
-				}
-
-				flat_value_t value1;
-				flat_value_t value2;
-
-				flat_stack_pop (&interpreter->stack, &value1);
-				flat_stack_pop (&interpreter->stack, &value2);
-
-				if (value1.kind != FLAT_INT || value2.kind != FLAT_INT) {
-					flat_interpreter_error (interpreter, FLAT_ERROR_TYPE_MISMATCH, 2, "int, int", &value2, &value1);
-					flat_stack_push (&interpreter->stack, &value2);
-					flat_stack_push (&interpreter->stack, &value1);
-					return 1;
-				}
-
-				flat_value_t value3;
-
-				flat_value_int (&value3, value2.value.as_int + value1.value.as_int);
-
-				flat_stack_push (&interpreter->stack, &value3);
+			if (flat_dictionary_lookup (&interpreter->dictionary, instruction->value.as_word, &program)) {
+				if (program->kind == FLAT_PROGRAM_NATIVE) program->value.as_native (interpreter);
 			} else {
 				flat_interpreter_error (interpreter, FLAT_ERROR_UNKNOWN_WORD, instruction->value.as_word);
 			}
 			flat_value_free_refs (instruction);
 			break;
+		}
 		default:
 			flat_stack_push (&interpreter->stack, instruction);
 	}
+	return 0;
+}
+
+int flat_word_drop (flat_interpreter_t *interpreter) {
+	if (flat_stack_size (interpreter->stack) < 1) {
+		flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "drop", 1);
+		return 1;
+	}
+
+	flat_value_t discard;
+	flat_stack_pop (&interpreter->stack, &discard);
+
+	flat_value_free_refs (&discard);
+
+	return 0;
+}
+
+int flat_word_clear (flat_interpreter_t *interpreter) {
+	flat_stack_destroy (interpreter->stack);
+	interpreter->stack = NULL;
+
+	return 0;
+}
+
+int flat_word_dup (flat_interpreter_t *interpreter) {
+	if (flat_stack_size (interpreter->stack) < 1) {
+		flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "dup", 1);
+	}
+
+	flat_value_t value;
+
+	flat_stack_peek ( interpreter->stack, 0, &value);
+	flat_stack_push (&interpreter->stack,    &value);
+
+	return 0;
+}
+
+int flat_word_PLUS (flat_interpreter_t *interpreter) {
+	if (flat_stack_size (interpreter->stack) < 2) {
+		flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "+", 2);
+		return 1;
+	}
+
+	flat_value_t value1;
+	flat_value_t value2;
+
+	flat_stack_pop (&interpreter->stack, &value1);
+	flat_stack_pop (&interpreter->stack, &value2);
+
+	if (value1.kind != FLAT_INT || value2.kind != FLAT_INT) {
+		flat_interpreter_error (interpreter, FLAT_ERROR_TYPE_MISMATCH, 2, "int, int", &value2, &value1);
+		flat_stack_push (&interpreter->stack, &value2);
+		flat_stack_push (&interpreter->stack, &value1);
+		return 1;
+	}
+
+	flat_value_t value3;
+
+	flat_value_int (&value3, value2.value.as_int + value1.value.as_int);
+
+	flat_stack_push (&interpreter->stack, &value3);
+
 	return 0;
 }
 
@@ -358,27 +429,14 @@ got_newline:
 }
 
 int main (int argc, char **argv) {
-	/*
 	flat_interpreter_t interpreter;
 
-	while (!feof (stdin)) {
-		flat_read_eval_print (&interpreter);
-	}
-	*/
+	flat_interpreter_register_native (&interpreter, "drop",  &flat_word_drop);
+	flat_interpreter_register_native (&interpreter, "clear", &flat_word_clear);
+	flat_interpreter_register_native (&interpreter, "dup",   &flat_word_dup);
+	flat_interpreter_register_native (&interpreter, "+",     &flat_word_PLUS);
 
-	flat_dictionary_t dictionary;
-
-	flat_dictionary_insert (&dictionary, "+", (flat_program_t *) 2);
-	flat_dictionary_insert (&dictionary, "drop", (flat_program_t *) 4);
-	flat_dictionary_insert (&dictionary, "clear", (flat_program_t *) 8);
-	flat_dictionary_insert (&dictionary, "blah", (flat_program_t *) 16);
-	flat_dictionary_insert (&dictionary, "blaha", (flat_program_t *) 32);
-
-	flat_program_t *target;
-
-	flat_dictionary_lookup (&dictionary, "blaha", &target);
-
-	printf ("%x\n", (int) target);
+	while (!feof (stdin)) flat_read_eval_print (&interpreter);
 
 	return 0;
 }

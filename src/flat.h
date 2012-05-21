@@ -42,7 +42,7 @@ typedef enum {
 
 typedef struct flat_interpreter {
 	flat_stack_t *stack;
-	flat_dictionary_t *dictionary;
+	flat_dictionary_t dictionary;
 } flat_interpreter_t;
 
 struct flat_program {
@@ -83,9 +83,15 @@ char *flat_value_type_name (flat_value_t *value);
 
 void flat_value_free_refs (flat_value_t *value);
 
+int flat_program_native (flat_program_t **program_ptr, int (*native) (flat_interpreter_t *));
+
+int flat_program_interpreted (flat_program_t **program_ptr, flat_value_list_t *interpreted);
+
 void flat_interpreter_error (flat_interpreter_t *interpreter, flat_error_t errno, ...);
 
 int flat_interpret (flat_interpreter_t *interpreter, flat_value_t *instruction);
+
+int flat_interpreter_register_native (flat_interpreter_t *interpreter, char *word, int (*native) (flat_interpreter_t *));
 
 void flat_read_eval_print (flat_interpreter_t *interpreter);
 
