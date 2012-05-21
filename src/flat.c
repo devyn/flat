@@ -283,6 +283,7 @@ int flat_word_clear (flat_interpreter_t *interpreter) {
 int flat_word_dup (flat_interpreter_t *interpreter) {
 	if (flat_stack_size (interpreter->stack) < 1) {
 		flat_interpreter_error (interpreter, FLAT_ERROR_NOT_ENOUGH_ARGUMENTS, "dup", 1);
+		return 1;
 	}
 
 	flat_value_t value;
